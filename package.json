@@ -1,0 +1,24 @@
+{
+  "name": "qa-engine",
+  "version": "0.1.0",
+  "description": "Framework-aware QA automation generator (WDIO+Cucumber+TS)",
+  "type": "commonjs",
+  "bin": {
+    "qa-engine": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "ts-node src/cli.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "fast-glob": "^3.3.2",
+    "ts-morph": "^22.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

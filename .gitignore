@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Local tool output
+.qa-engine/
+
+# VS Code
+.vscode/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS / temp
+tmp/
+temp/
