@@ -10,6 +10,7 @@ Early working prototype.
 
 What works today:
 
+- initialize a target repo config
 - scan an existing WDIO+Cucumber+TS repo
 - generate a QA package from a story text file
 - generate preview artifacts:
@@ -55,6 +56,17 @@ High-level flow:
 5. Apply them into the target framework
 
 ## Commands
+
+### Initialize a target framework
+
+Run this from the automation repo root:
+
+```bash
+npx ts-node ..\qa-engine\src\cli.ts init
+```
+
+The command prompts for the suite root, framework folders, and optional `elementList` file path. Each path must already exist relative to the automation repo root. When complete, it writes `qa-engine.config.json`.
+
 
 ### Scan the target framework
 
@@ -231,7 +243,6 @@ This is still an early prototype. Current limitations include:
 
 - domain logic is still partly rule-based / hardcoded
 - no real LLM provider wired in yet
-- no `init` command yet
 - no patch/diff apply flow yet
 - page object merge currently merges methods only
 - page object getter/import/class-level merge is still basic
@@ -241,7 +252,6 @@ This is still an early prototype. Current limitations include:
 
 Planned next improvements:
 
-- `qa-engine init`
 - real model-agnostic LLM adapter
 - better formatting cleanup
 - smarter reuse from `framework.json`

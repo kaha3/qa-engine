@@ -8,6 +8,7 @@ import { generatePageObjectFile } from "./generator/generatePageObjectFile";
 import { generateLocatorFile } from "./generator/generateLocatorFile";
 import { generateAll } from "./generator/generateAll";
 import { applyGeneratedFiles } from "./apply/applyGeneratedFiles";
+import { initConfig } from "./init/initConfig";
 
 const program = new Command();
 
@@ -15,6 +16,14 @@ program
   .name("qa-engine")
   .description("QA Engine - framework-aware automation generator")
   .version("0.1.0");
+
+program
+  .command("init")
+  .description("Interactively create qa-engine.config.json")
+  .action(async () => {
+    const repoRoot = process.cwd();
+    await initConfig(repoRoot);
+  });
 
 program
   .command("scan")
