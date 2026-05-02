@@ -1,14 +1,21 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
+import { formatTypeScriptFile } from "../utils/formatFile";
+
+export type StepMergeResult = {
+  action: "create" | "merge" | "noop";
+  oldContent: string;
+  newContent: string;
+  addedSteps: string[];
+  skippedSteps: string[];
+};
 
 function extractStepTexts(content: string): Set<string> {
   const regex = /(?:Given|When|Then|And)\("([^"]+)"/g;
   const texts = new Set<string>();
-
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content))) {
     texts.add(match[1].trim());
   }
-
   return texts;
 }
 
@@ -33,7 +40,6 @@ function extractStepBlocks(content: string): string[] {
 
     if (insideBlock) {
       currentBlock.push(line);
-
       if (line.trim() === "});") {
         blocks.push(currentBlock.join("\n").trim());
         currentBlock = [];
@@ -52,14 +58,10 @@ function extractStepBlocks(content: string): string[] {
 function extractImportsAndSetup(content: string): string {
   const lines = content.split(/\r?\n/);
   const header: string[] = [];
-
   for (const line of lines) {
-    if (/^(Given|When|Then|And)\("([^"]+)"/.test(line)) {
-      break;
-    }
+    if (/^(Given|When|Then|And)\("([^"]+)"/.test(line)) break;
     header.push(line);
   }
-
   return header.join("\n").trim();
 }
 
@@ -72,22 +74,23 @@ function extractStepTextFromBlock(block: string): string {
 export async function mergeStepFile(
   generatedFilePath: string,
   targetFilePath: string
-) {
+): Promise<StepMergeResult> {
   const generatedContent = await readFile(generatedFilePath, "utf-8");
 
-  let targetContent = "";
+  let oldContent = "";
   try {
-    targetContent = await readFile(targetFilePath, "utf-8");
+    oldContent = await readFile(targetFilePath, "utf-8");
   } catch {
-    await writeFile(targetFilePath, generatedContent, "utf-8");
     return {
-      created: true,
-      addedSteps: [],
+      action: "create",
+      oldContent: "",
+      newContent: formatTypeScriptFile(generatedContent),
+      addedSteps: extractStepBlocks(generatedContent).map(extractStepTextFromBlock).filter(Boolean),
       skippedSteps: []
     };
   }
 
-  const existingStepTexts = extractStepTexts(targetContent);
+  const existingStepTexts = extractStepTexts(oldContent);
   const generatedBlocks = extractStepBlocks(generatedContent);
 
   const addedSteps: string[] = [];
@@ -97,7 +100,6 @@ export async function mergeStepFile(
   for (const block of generatedBlocks) {
     const stepText = extractStepTextFromBlock(block);
     if (!stepText) continue;
-
     if (existingStepTexts.has(stepText)) {
       skippedSteps.push(stepText);
     } else {
@@ -108,22 +110,22 @@ export async function mergeStepFile(
 
   if (blocksToAppend.length === 0) {
     return {
-      created: false,
+      action: "noop",
+      oldContent,
+      newContent: oldContent,
       addedSteps,
       skippedSteps
     };
   }
 
-  const header = extractImportsAndSetup(targetContent);
-  const existingBlocks = extractStepBlocks(targetContent);
-
-  const mergedContent =
-    [header, "", ...existingBlocks, ...blocksToAppend].join("\n\n").trim() + "\n";
-
-  await writeFile(targetFilePath, mergedContent, "utf-8");
+  const header = extractImportsAndSetup(oldContent);
+  const existingBlocks = extractStepBlocks(oldContent);
+  const merged = [header, "", ...existingBlocks, ...blocksToAppend].join("\n\n");
 
   return {
-    created: false,
+    action: "merge",
+    oldContent,
+    newContent: formatTypeScriptFile(merged),
     addedSteps,
     skippedSteps
   };

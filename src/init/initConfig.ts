@@ -212,7 +212,8 @@ function buildConfig(answers: Map<string, string>): QaEngineConfig {
     llm: {
       provider: "openai",
       model: "gpt-4.1-mini",
-      responseFormat: "json"
+      responseFormat: "json",
+      apiKeyEnv: "OPENAI_API_KEY"
     }
   };
 }

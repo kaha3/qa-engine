@@ -85,7 +85,7 @@ This creates:
 ### Generate QA package only
 
 ```bash
-npx ts-node ..\qa-engine\src\cli.ts generate --story story.txt
+npx ts-node ..\qa-engine\src\cli.ts generate --story story.txt [--mode full|automation]
 ```
 
 This creates:
@@ -93,10 +93,12 @@ This creates:
 - `.qa-engine/out/qa-package.json`
 - `.qa-engine/out/qa-package.md`
 
+`--mode automation` omits manual checks. `--mode full` (default) includes them.
+
 ### Generate all preview artifacts
 
 ```bash
-npx ts-node ..\qa-engine\src\cli.ts generate-all --story story.txt
+npx ts-node ..\qa-engine\src\cli.ts generate-all --story story.txt [--mode full|automation]
 ```
 
 This creates preview files inside:
@@ -109,11 +111,24 @@ This creates preview files inside:
   elements/
 ```
 
+When `.qa-engine/framework.json` is present, generation reuses existing
+step patterns, page object methods, and locator names — duplicates are
+skipped and noted in a header comment in the generated file.
+
 ### Apply generated files into framework
 
 ```bash
-npx ts-node ..\qa-engine\src\cli.ts apply
+npx ts-node ..\qa-engine\src\cli.ts apply [--dry-run] [--force] [--patch]
 ```
+
+- `--dry-run` — print what would be created/merged, write nothing.
+- `--force` — overwrite target files instead of merging.
+- `--patch` — write a unified diff to the configured patch file
+  (defaults to `.qa-engine/out/patch.diff`) instead of writing target
+  files. Apply later with `git apply .qa-engine/out/patch.diff`.
+
+Each apply prints an action summary: created / merged / overwritten /
+no changes / skipped.
 
 ## Apply behavior
 
@@ -200,10 +215,25 @@ Example:
   "llm": {
     "provider": "openai",
     "model": "gpt-4.1-mini",
-    "responseFormat": "json"
+    "responseFormat": "json",
+    "apiKeyEnv": "OPENAI_API_KEY",
+    "baseUrl": "https://api.openai.com"
   }
 }
 ```
+
+### LLM providers
+
+- `provider: "openai"` (default) — uses `OPENAI_API_KEY` (or whatever
+  `llm.apiKeyEnv` names) and the configured `model`. Responses must
+  match the QA package JSON schema; mismatches and HTTP errors raise
+  with provider context.
+- `provider: "fake"` — deterministic offline client backed by the
+  bundled domain specs. Useful for demos and CI without a key.
+- If the configured API key env var is missing, qa-engine logs a
+  warning and falls back to the fake client so the flow still works
+  offline.
+- Force the fake client at any time with `QA_ENGINE_FAKE_LLM=1`.
 
 ## Demo usage
 
@@ -241,12 +271,12 @@ For the current demo flow, `qa-engine` can generate:
 
 This is still an early prototype. Current limitations include:
 
-- domain logic is still partly rule-based / hardcoded
-- no real LLM provider wired in yet
-- no patch/diff apply flow yet
-- page object merge currently merges methods only
-- page object getter/import/class-level merge is still basic
-- generated automation is starter-level, not production-ready without review
+- domain logic is still partly rule-based / hardcoded (rich specs
+  exist for `sdd`, `login`, `shopping`, `orderHistory`)
+- page object merge currently merges methods only — getters and
+  imports are not deeply diffed
+- generated automation is starter-level, not production-ready without
+  review
 
 ## Recommended next steps
 
