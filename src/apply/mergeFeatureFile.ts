@@ -1,4 +1,13 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
+import { formatFeatureFile } from "../utils/formatFile";
+
+export type FeatureMergeResult = {
+  action: "create" | "merge" | "noop";
+  oldContent: string;
+  newContent: string;
+  addedScenarios: string[];
+  skippedScenarios: string[];
+};
 
 function extractScenarioTitles(content: string): Set<string> {
   const matches = content.match(/^Scenario:\s+(.+)$/gm) ?? [];
@@ -17,10 +26,8 @@ function extractScenarioBlocks(content: string): string[] {
         blocks.push(currentBlock.join("\n").trim());
       }
       currentBlock = [line];
-    } else {
-      if (currentBlock.length > 0) {
-        currentBlock.push(line);
-      }
+    } else if (currentBlock.length > 0) {
+      currentBlock.push(line);
     }
   }
 
@@ -36,9 +43,7 @@ function extractFeatureHeader(content: string): string {
   const header: string[] = [];
 
   for (const line of lines) {
-    if (line.startsWith("Scenario: ")) {
-      break;
-    }
+    if (line.startsWith("Scenario: ")) break;
     header.push(line);
   }
 
@@ -48,34 +53,34 @@ function extractFeatureHeader(content: string): string {
 export async function mergeFeatureFile(
   generatedFilePath: string,
   targetFilePath: string
-) {
+): Promise<FeatureMergeResult> {
   const generatedContent = await readFile(generatedFilePath, "utf-8");
 
-  let targetContent = "";
+  let oldContent = "";
   try {
-    targetContent = await readFile(targetFilePath, "utf-8");
+    oldContent = await readFile(targetFilePath, "utf-8");
   } catch {
-    // target does not exist yet
-    await writeFile(targetFilePath, generatedContent, "utf-8");
     return {
-      created: true,
-      addedScenarios: [],
+      action: "create",
+      oldContent: "",
+      newContent: formatFeatureFile(generatedContent),
+      addedScenarios: extractScenarioBlocks(generatedContent).map((b) =>
+        (b.split(/\r?\n/)[0] ?? "").replace(/^Scenario:\s+/, "").trim()
+      ),
       skippedScenarios: []
     };
   }
 
-  const existingTitles = extractScenarioTitles(targetContent);
+  const existingTitles = extractScenarioTitles(oldContent);
   const generatedBlocks = extractScenarioBlocks(generatedContent);
 
   const addedScenarios: string[] = [];
   const skippedScenarios: string[] = [];
-
   const blocksToAppend: string[] = [];
 
   for (const block of generatedBlocks) {
     const firstLine = block.split(/\r?\n/)[0] ?? "";
     const title = firstLine.replace(/^Scenario:\s+/, "").trim();
-
     if (!title) continue;
 
     if (existingTitles.has(title)) {
@@ -88,28 +93,22 @@ export async function mergeFeatureFile(
 
   if (blocksToAppend.length === 0) {
     return {
-      created: false,
+      action: "noop",
+      oldContent,
+      newContent: oldContent,
       addedScenarios,
       skippedScenarios
     };
   }
 
-  const header = extractFeatureHeader(targetContent);
-  const existingScenarioBlocks = extractScenarioBlocks(targetContent);
-
-  const mergedContent = [
-    header,
-    "",
-    ...existingScenarioBlocks,
-    ...blocksToAppend
-  ]
-    .join("\n\n")
-    .trim() + "\n";
-
-  await writeFile(targetFilePath, mergedContent, "utf-8");
+  const header = extractFeatureHeader(oldContent);
+  const existingScenarioBlocks = extractScenarioBlocks(oldContent);
+  const merged = [header, "", ...existingScenarioBlocks, ...blocksToAppend].join("\n\n");
 
   return {
-    created: false,
+    action: "merge",
+    oldContent,
+    newContent: formatFeatureFile(merged),
     addedScenarios,
     skippedScenarios
   };

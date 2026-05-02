@@ -2,6 +2,9 @@ import path from "path";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { QaEngineConfig } from "../config/schema";
 import { getDomainSpec } from "../domains/domainSpecs";
+import { toCamelCase, toPascalCase } from "../utils/casing";
+import { formatTypeScriptFile } from "../utils/formatFile";
+import { findExistingPageObjectClass, loadFramework } from "../scan/loadFramework";
 
 type QaPackage = {
   domainKey: string;
@@ -11,45 +14,11 @@ type QaPackage = {
   clarificationQuestions: string[];
 };
 
-function toPascalCase(value: string): string {
-  return value
-    .replace(/[-_\s]+(.)?/g, (_, c) => (c ? c.toUpperCase() : ""))
-    .replace(/^./, (c) => c.toUpperCase());
-}
-
-function methodBody(methodName: string): string[] {
-  switch (methodName) {
-    case "openHomePage":
-      return [`    // TODO: replace with real URL`, `    await browser.url("/");`];
-    case "openSupportedProduct":
-      return [
-        `    await this.supportedProductLink.waitForDisplayed();`,
-        `    await this.supportedProductLink.click();`
-      ];
-    case "enterEligibleZipCode":
-      return [
-        `    await this.eligibleZipInput.waitForDisplayed();`,
-        `    await this.eligibleZipInput.setValue("60601");`
-      ];
-    case "enterNonEligibleZipCode":
-      return [
-        `    await this.nonEligibleZipInput.waitForDisplayed();`,
-        `    await this.nonEligibleZipInput.setValue("99999");`
-      ];
-    case "verifySameDayDeliveryVisible":
-      return [`    await this.sameDayDeliveryOption.waitForDisplayed();`];
-    case "verifySameDayDeliveryNotVisible":
-      return [`    await expect(this.sameDayDeliveryOption).not.toBeDisplayed();`];
-    case "selectSameDayDelivery":
-      return [
-        `    await this.sameDayDeliveryOption.waitForDisplayed();`,
-        `    await this.sameDayDeliveryOption.click();`
-      ];
-    case "verifyShippingTotalUpdated":
-      return [`    await this.shippingTotalLabel.waitForDisplayed();`];
-    default:
-      return [`    // TODO: implement method`];
-  }
+function locatorFileImportBase(cfg: QaEngineConfig, domainKey: string): string {
+  const fileForDomain = cfg.locators.fileForDomainKey[domainKey];
+  if (fileForDomain) return fileForDomain.replace(/\.ts$/, "");
+  const fallback = cfg.locators.fileForDomainKey[cfg.locators.defaultFileKey];
+  return (fallback ?? `${domainKey}.ts`).replace(/\.ts$/, "");
 }
 
 export async function generatePageObjectFile(
@@ -60,21 +29,44 @@ export async function generatePageObjectFile(
   const raw = await readFile(qaPackagePath, "utf-8");
   const qaPackage: QaPackage = JSON.parse(raw);
 
+  const framework = await loadFramework(repoRoot);
+
   const classBase = toPascalCase(qaPackage.domainKey);
-  const className = `${classBase}PageObject`;
+  const className = `${classBase}${cfg.naming.pageObjectClassSuffix}`;
+  const existingClass = findExistingPageObjectClass(framework, className);
 
   const spec = getDomainSpec(qaPackage.domainKey);
 
-  const getters = spec?.getters ?? [
-    { name: "mainElement", locator: "MAIN_ELEMENT" }
-  ];
+  const getters = spec?.getters ?? [{ name: "mainElement", locator: "MAIN_ELEMENT" }];
+  const methods =
+    spec?.methods ?? [
+      { name: "openPage", body: [`// TODO: implement openPage`] },
+      { name: "performAction", body: [`// TODO: implement performAction`] },
+      { name: "verifyResult", body: [`// TODO: implement verifyResult`] }
+    ];
 
-  const methods = spec?.methods ?? ["openPage", "performAction", "verifyResult"];
+  const existingMethodNames = new Set(existingClass?.methods ?? []);
+  const skippedMethods: string[] = [];
+  const generatedMethods = methods.filter((m) => {
+    if (existingMethodNames.has(m.name)) {
+      skippedMethods.push(m.name);
+      return false;
+    }
+    return true;
+  });
+
+  const locatorImportBase = locatorFileImportBase(cfg, qaPackage.domainKey);
 
   const lines: string[] = [];
-  lines.push(`import * as elmList from "../elements/${qaPackage.domainKey}";`);
+  lines.push(`import * as elmList from "../elements/${locatorImportBase}";`);
   lines.push(``);
   lines.push(`// Auto-generated page object skeleton for domain: ${qaPackage.domainKey}`);
+  if (existingClass) {
+    lines.push(`// Existing class detected at ${existingClass.file} — methods present there are not re-emitted.`);
+  }
+  if (skippedMethods.length > 0) {
+    lines.push(`// Skipped methods (already on existing class): ${skippedMethods.join(", ")}`);
+  }
   lines.push(``);
   lines.push(`export class ${className} {`);
 
@@ -85,9 +77,11 @@ export async function generatePageObjectFile(
     lines.push(``);
   }
 
-  for (const methodName of methods) {
-    lines.push(`  public async ${methodName}(): Promise<void> {`);
-    lines.push(...methodBody(methodName));
+  for (const method of generatedMethods) {
+    lines.push(`  public async ${method.name}(): Promise<void> {`);
+    for (const bodyLine of method.body) {
+      lines.push(`    ${bodyLine}`);
+    }
     lines.push(`  }`);
     lines.push(``);
   }
@@ -95,8 +89,11 @@ export async function generatePageObjectFile(
   lines.push(`}`);
 
   const outDir = path.join(repoRoot, ".qa-engine", "out", "pageobjects");
-await mkdir(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true });
 
-const filePath = path.join(outDir, `${qaPackage.domainKey}Page.ts`);
-await writeFile(filePath, lines.join("\n"), "utf-8");
+  const camel = toCamelCase(qaPackage.domainKey);
+  const fileSuffix = cfg.naming.pageObjectFileSuffix;
+  const fileName = `${camel}${fileSuffix}`;
+  const filePath = path.join(outDir, fileName);
+  await writeFile(filePath, formatTypeScriptFile(lines.join("\n")), "utf-8");
 }

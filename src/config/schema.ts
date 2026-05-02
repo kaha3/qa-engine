@@ -40,7 +40,9 @@ export const QaEngineConfigSchema = z.object({
   llm: z.object({
     provider: z.string(),
     model: z.string(),
-    responseFormat: z.literal("json")
+    responseFormat: z.literal("json"),
+    apiKeyEnv: z.string().optional(),
+    baseUrl: z.string().optional()
   })
 });
 

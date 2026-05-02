@@ -1,41 +1,42 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
+import { formatTypeScriptFile } from "../utils/formatFile";
+
+export type LocatorMergeResult = {
+  action: "create" | "merge" | "noop";
+  oldContent: string;
+  newContent: string;
+  addedLocators: string[];
+  skippedLocators: string[];
+};
 
 function extractLocatorNames(content: string): Set<string> {
   const regex = /export const ([A-Z0-9_]+)\s*=/g;
   const names = new Set<string>();
-
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content))) {
     names.add(match[1].trim());
   }
-
   return names;
 }
 
 function extractLocatorBlocks(content: string): string[] {
   const lines = content.split(/\r?\n/);
   const blocks: string[] = [];
-
   for (const line of lines) {
     if (/^export const [A-Z0-9_]+\s*=/.test(line.trim())) {
       blocks.push(line.trim());
     }
   }
-
   return blocks;
 }
 
 function extractHeader(content: string): string {
   const lines = content.split(/\r?\n/);
   const header: string[] = [];
-
   for (const line of lines) {
-    if (/^export const [A-Z0-9_]+\s*=/.test(line.trim())) {
-      break;
-    }
+    if (/^export const [A-Z0-9_]+\s*=/.test(line.trim())) break;
     header.push(line);
   }
-
   return header.join("\n").trim();
 }
 
@@ -47,22 +48,23 @@ function extractLocatorNameFromBlock(block: string): string {
 export async function mergeLocatorFile(
   generatedFilePath: string,
   targetFilePath: string
-) {
+): Promise<LocatorMergeResult> {
   const generatedContent = await readFile(generatedFilePath, "utf-8");
 
-  let targetContent = "";
+  let oldContent = "";
   try {
-    targetContent = await readFile(targetFilePath, "utf-8");
+    oldContent = await readFile(targetFilePath, "utf-8");
   } catch {
-    await writeFile(targetFilePath, generatedContent, "utf-8");
     return {
-      created: true,
-      addedLocators: [],
+      action: "create",
+      oldContent: "",
+      newContent: formatTypeScriptFile(generatedContent),
+      addedLocators: extractLocatorBlocks(generatedContent).map(extractLocatorNameFromBlock).filter(Boolean),
       skippedLocators: []
     };
   }
 
-  const existingLocatorNames = extractLocatorNames(targetContent);
+  const existingLocatorNames = extractLocatorNames(oldContent);
   const generatedBlocks = extractLocatorBlocks(generatedContent);
 
   const addedLocators: string[] = [];
@@ -72,7 +74,6 @@ export async function mergeLocatorFile(
   for (const block of generatedBlocks) {
     const locatorName = extractLocatorNameFromBlock(block);
     if (!locatorName) continue;
-
     if (existingLocatorNames.has(locatorName)) {
       skippedLocators.push(locatorName);
     } else {
@@ -83,22 +84,22 @@ export async function mergeLocatorFile(
 
   if (blocksToAppend.length === 0) {
     return {
-      created: false,
+      action: "noop",
+      oldContent,
+      newContent: oldContent,
       addedLocators,
       skippedLocators
     };
   }
 
-  const header = extractHeader(targetContent);
-  const existingBlocks = extractLocatorBlocks(targetContent);
-
-  const mergedContent =
-    [header, "", ...existingBlocks, ...blocksToAppend].join("\n\n").trim() + "\n";
-
-  await writeFile(targetFilePath, mergedContent, "utf-8");
+  const header = extractHeader(oldContent);
+  const existingBlocks = extractLocatorBlocks(oldContent);
+  const merged = [header, "", ...existingBlocks, ...blocksToAppend].join("\n\n");
 
   return {
-    created: false,
+    action: "merge",
+    oldContent,
+    newContent: formatTypeScriptFile(merged),
     addedLocators,
     skippedLocators
   };

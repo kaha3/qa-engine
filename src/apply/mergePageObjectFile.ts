@@ -1,21 +1,27 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile } from "fs/promises";
+import { formatTypeScriptFile } from "../utils/formatFile";
+
+export type PageObjectMergeResult = {
+  action: "create" | "merge" | "noop";
+  oldContent: string;
+  newContent: string;
+  addedMethods: string[];
+  skippedMethods: string[];
+};
 
 function extractMethodNames(content: string): Set<string> {
   const regex = /public async ([a-zA-Z0-9_]+)\s*\(/g;
   const names = new Set<string>();
-
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content))) {
     names.add(match[1].trim());
   }
-
   return names;
 }
 
 function extractMethodBlocks(content: string): string[] {
   const lines = content.split(/\r?\n/);
   const blocks: string[] = [];
-
   let currentBlock: string[] = [];
   let insideMethod = false;
   let braceDepth = 0;
@@ -30,7 +36,6 @@ function extractMethodBlocks(content: string): string[] {
       }
       currentBlock = [line];
       insideMethod = true;
-
       braceDepth = (line.match(/{/g) ?? []).length - (line.match(/}/g) ?? []).length;
       continue;
     }
@@ -39,7 +44,6 @@ function extractMethodBlocks(content: string): string[] {
       currentBlock.push(line);
       braceDepth += (line.match(/{/g) ?? []).length;
       braceDepth -= (line.match(/}/g) ?? []).length;
-
       if (braceDepth <= 0) {
         blocks.push(currentBlock.join("\n").trimEnd());
         currentBlock = [];
@@ -65,22 +69,23 @@ function extractMethodNameFromBlock(block: string): string {
 export async function mergePageObjectFile(
   generatedFilePath: string,
   targetFilePath: string
-) {
+): Promise<PageObjectMergeResult> {
   const generatedContent = await readFile(generatedFilePath, "utf-8");
 
-  let targetContent = "";
+  let oldContent = "";
   try {
-    targetContent = await readFile(targetFilePath, "utf-8");
+    oldContent = await readFile(targetFilePath, "utf-8");
   } catch {
-    await writeFile(targetFilePath, generatedContent, "utf-8");
     return {
-      created: true,
-      addedMethods: [],
+      action: "create",
+      oldContent: "",
+      newContent: formatTypeScriptFile(generatedContent),
+      addedMethods: extractMethodBlocks(generatedContent).map(extractMethodNameFromBlock).filter(Boolean),
       skippedMethods: []
     };
   }
 
-  const existingMethodNames = extractMethodNames(targetContent);
+  const existingMethodNames = extractMethodNames(oldContent);
   const generatedMethodBlocks = extractMethodBlocks(generatedContent);
 
   const addedMethods: string[] = [];
@@ -90,7 +95,6 @@ export async function mergePageObjectFile(
   for (const block of generatedMethodBlocks) {
     const methodName = extractMethodNameFromBlock(block);
     if (!methodName) continue;
-
     if (existingMethodNames.has(methodName)) {
       skippedMethods.push(methodName);
     } else {
@@ -101,27 +105,27 @@ export async function mergePageObjectFile(
 
   if (methodsToAppend.length === 0) {
     return {
-      created: false,
+      action: "noop",
+      oldContent,
+      newContent: oldContent,
       addedMethods,
       skippedMethods
     };
   }
 
-  const classCloseIndex = targetContent.lastIndexOf("}");
+  const classCloseIndex = oldContent.lastIndexOf("}");
   if (classCloseIndex === -1) {
     throw new Error(`Could not find closing brace in page object file: ${targetFilePath}`);
   }
 
-  const beforeClose = targetContent.slice(0, classCloseIndex).trimEnd();
-  const afterClose = targetContent.slice(classCloseIndex);
-
-  const mergedContent =
-    `${beforeClose}\n\n${methodsToAppend.join("\n\n")}\n\n${afterClose}`.trimEnd() + "\n";
-
-  await writeFile(targetFilePath, mergedContent, "utf-8");
+  const beforeClose = oldContent.slice(0, classCloseIndex).trimEnd();
+  const afterClose = oldContent.slice(classCloseIndex);
+  const merged = `${beforeClose}\n\n${methodsToAppend.join("\n\n")}\n\n${afterClose}`;
 
   return {
-    created: false,
+    action: "merge",
+    oldContent,
+    newContent: formatTypeScriptFile(merged),
     addedMethods,
     skippedMethods
   };

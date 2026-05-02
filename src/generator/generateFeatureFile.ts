@@ -2,6 +2,7 @@ import path from "path";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { QaEngineConfig } from "../config/schema";
 import { getDomainSpec } from "../domains/domainSpecs";
+import { formatFeatureFile } from "../utils/formatFile";
 
 type QaPackage = {
   domainKey: string;
@@ -11,48 +12,27 @@ type QaPackage = {
   clarificationQuestions: string[];
 };
 
-function getScenarioSteps(domainKey: string, title: string): string[] {
+function stepsForScenario(domainKey: string, title: string): string[] {
   const spec = getDomainSpec(domainKey);
   if (!spec) {
-    return [
-      "Given the user starts the flow",
-      "When the user performs the action",
-      "Then the expected result should be shown"
-    ];
+    return genericSteps();
   }
 
-  const lower = title.toLowerCase();
+  const normalizedTitle = title.trim().toLowerCase();
+  const exact = spec.scenarios.find((s) => s.title.trim().toLowerCase() === normalizedTitle);
+  if (exact) return exact.steps;
 
-  if (domainKey === "sdd") {
-    if (lower.includes("non-eligible zip")) {
-      return [
-        "Given the user is on the homepage",
-        "When the user opens a supported product",
-        "And the user enters a non-eligible ZIP code",
-        "Then the user should not see Same Day Delivery option"
-      ];
-    }
+  const partial = spec.scenarios.find(
+    (s) =>
+      normalizedTitle.includes(s.title.trim().toLowerCase()) ||
+      s.title.trim().toLowerCase().includes(normalizedTitle)
+  );
+  if (partial) return partial.steps;
 
-    if (lower.includes("eligible zip")) {
-      return [
-        "Given the user is on the homepage",
-        "When the user opens a supported product",
-        "And the user enters an eligible ZIP code",
-        "Then the user should see Same Day Delivery option"
-      ];
-    }
+  return genericSteps();
+}
 
-    if (lower.includes("shipping total updates")) {
-      return [
-        "Given the user is on the homepage",
-        "When the user opens a supported product",
-        "And the user enters an eligible ZIP code",
-        "And the user selects Same Day Delivery",
-        "Then the shipping total should be updated"
-      ];
-    }
-  }
-
+function genericSteps(): string[] {
   return [
     "Given the user starts the flow",
     "When the user performs the action",
@@ -71,22 +51,26 @@ export async function generateFeatureFile(
   const spec = getDomainSpec(qaPackage.domainKey);
   const title = spec?.featureTitle ?? qaPackage.domainKey;
 
+  const tags = cfg.generation.defaultTags.length > 0
+    ? cfg.generation.defaultTags.join(" ")
+    : "@p1";
+
   const lines: string[] = [];
-  lines.push(`@generated @p1`);
+  lines.push(`@generated ${tags}`);
   lines.push(`Feature: ${title}`);
   lines.push("");
 
   qaPackage.automationScenarios.forEach((scenarioTitle) => {
     lines.push(`Scenario: ${scenarioTitle}`);
-    for (const step of getScenarioSteps(qaPackage.domainKey, scenarioTitle)) {
+    for (const step of stepsForScenario(qaPackage.domainKey, scenarioTitle)) {
       lines.push(`    ${step}`);
     }
     lines.push("");
   });
 
   const outDir = path.join(repoRoot, ".qa-engine", "out", "features");
-await mkdir(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true });
 
-const featureFilePath = path.join(outDir, `${qaPackage.domainKey}.feature`);
-await writeFile(featureFilePath, lines.join("\n"), "utf-8");
+  const featureFilePath = path.join(outDir, `${qaPackage.domainKey}.feature`);
+  await writeFile(featureFilePath, formatFeatureFile(lines.join("\n")), "utf-8");
 }
