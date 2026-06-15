@@ -9,6 +9,7 @@ Thumbs.db
 
 # Local tool output
 .qa-engine/
+.claude/
 
 # VS Code
 .vscode/

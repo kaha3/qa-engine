@@ -7,7 +7,7 @@ export function normalizeBlankLines(content: string, maxConsecutive = 1): string
 
 export function ensureTrailingNewline(content: string): string {
   if (content.length === 0) return content;
-  return content.endsWith("\n") ? content : `${content}\n`;
+  return `${content.replace(/\n+$/, "")}\n`;
 }
 
 export function formatFeatureFile(content: string): string {
